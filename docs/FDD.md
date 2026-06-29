@@ -519,6 +519,27 @@ Contadores e gauges a expor (via endpoint `/metrics` ou ferramenta de APM):
 | `webhook_dlq_total` | Counter | Total de eventos movidos para DLQ |
 | `webhook_outbox_pending_total` | Gauge | Tamanho atual da fila pendente — métrica de alerta crítica para detectar worker parado |
 
+### Tracing
+
+O projeto não usa uma biblioteca de tracing distribuído (OpenTelemetry, Jaeger, etc.) — a abordagem adotada é propagar um `traceId` por evento como campo estruturado nos logs do Pino, permitindo correlacionar todas as entradas de log de um mesmo evento ao longo de todo o seu ciclo de vida: da inserção na outbox ao DELIVERED ou à DLQ.
+
+**Geração do traceId:**
+O `traceId` é gerado uma única vez na inserção do evento na `webhook_outbox` — coincide com o `eventId` (UUID) já persistido, eliminando a necessidade de um campo adicional. Isso garante que o mesmo identificador viaja pela transação de mudança de status, por cada tentativa do worker e pelo registro final na `webhook_delivery` ou `webhook_dead_letter`.
+
+**Propagação nos logs:**
+Todos os logs do worker incluem `eventId` como campo de correlação. Para correlacionar com o contexto da API que gerou o evento (ex.: a requisição HTTP que disparou o `changeStatus`), a função `publishWebhookEvent` recebe e persiste o `requestId` do logger Pino da requisição originadora quando disponível:
+
+```json
+{ "level": "info", "msg": "webhook outbox inserted", "eventId": "d9b3a7e5-...", "requestId": "req-abc123", "webhookId": "9e1d7f3a-...", "fromStatus": "PAID", "toStatus": "SHIPPED" }
+{ "level": "info", "msg": "webhook delivery attempt", "eventId": "d9b3a7e5-...", "requestId": "req-abc123", "attempt": 1 }
+{ "level": "info", "msg": "webhook delivered",        "eventId": "d9b3a7e5-...", "requestId": "req-abc123", "attempt": 1, "durationMs": 234 }
+```
+
+Com `eventId` e `requestId` indexados no sistema de log (ex.: Loki, CloudWatch Logs Insights), é possível reconstruir o caminho completo de qualquer notificação: qual requisição HTTP originou o evento → quantas tentativas ocorreram → qual foi o desfecho.
+
+**Span do lado do cliente:**
+O header `X-Event-Id` enviado em cada entrega serve também como identificador de span para o cliente: ele pode correlacionar a entrega recebida com o evento no seu próprio sistema de tracing usando esse valor.
+
 ---
 
 ## 10. Integração com o Sistema Existente

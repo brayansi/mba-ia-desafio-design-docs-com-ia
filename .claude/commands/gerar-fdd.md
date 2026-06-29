@@ -162,7 +162,7 @@ Todos os códigos devem usar o prefixo `WEBHOOK_`:
 Descreva:
 - **Métricas** (ex: `webhook_deliveries_total`, `webhook_delivery_duration_ms`, `webhook_retry_count`, `webhook_dlq_total`)
 - **Logs estruturados** com Pino — o que logar em cada etapa do worker (event_id, webhook_id, attempt, status_code, duration_ms, error)
-- **Tracing** — spans para a inserção na outbox e para cada tentativa de entrega
+- **Tracing** — o projeto não usa OpenTelemetry/Jaeger; adote propagação de `traceId` via campos estruturados no Pino. O `eventId` (UUID gerado na inserção da outbox) serve como `traceId` natural — o mesmo valor viaja por todos os logs do worker (inserção, tentativas, DELIVERED, DLQ). Quando disponível, propague também o `requestId` da requisição HTTP originadora (do `changeStatus`) para correlacionar a entrega com a chamada da API que a disparou. O header `X-Event-Id` enviado ao cliente serve como identificador de span no sistema de tracing do receptor.
 
 ### 10. Integração com o Sistema Existente
 
